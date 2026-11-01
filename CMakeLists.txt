@@ -71,6 +71,7 @@ include_directories("../../libs/libcommon")
 include_directories("../../libs/libdstdec")
 include_directories("../../libs/libid3")
 include_directories("../../libs/libsacd")
+include_directories("../../libs/libsds")
 
 message(STATUS "libmxl2 ${LIBXML2_LIBRARIES}")
 find_package(LibXml2 REQUIRED)
@@ -107,6 +108,10 @@ file(GLOB libsacd_headers src/libsacd/*.h)
 file(GLOB libsacd_sources src/libsacd/*.c)
 source_group(libsacd FILES ${libsacd_headers} ${libsacd_sources})
 
+file(GLOB libsds_headers src/libsds/*.h)
+file(GLOB libsds_sources src/libsds/*.c)
+source_group(libsds FILES ${libsds_headers} ${libsds_sources})
+
 file(GLOB main_headers src/*.h)
 file(GLOB main_sources src/*.c)
 source_group(main FILES ${main_headers} ${main_sources})
@@ -117,6 +122,7 @@ add_executable(sacd_extract
     ${libdstdec_headers} ${libdstdec_sources}
     ${libid3_headers} ${libid3_sources}
     ${libsacd_headers} ${libsacd_sources}
+    ${libsds_headers} ${libsds_sources}
     )
 
 if(WIN32)
