@@ -431,7 +431,7 @@ static void init(void)
 #if defined(WIN32) || defined(_WIN32)
     signal(SIGINT, handle_sigint);
 	
-#else
+#elif defined(__USE_POSIX)
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = &handle_sigint;
@@ -726,7 +726,7 @@ char * return_current_directory()
         char *buffer;
         if ((buffer = return_current_directory() ) != NULL)   
         {
-            char *wide_filename;
+            wchar_t *wide_filename;
             CHAR2WCHAR(wide_filename, buffer);
             fwprintf(stdout, L"\nCurrent (working) directory (for the app and 'sacd_extract.cfg' file): %ls\n", (wchar_t *)wide_filename);
             free(wide_filename);
