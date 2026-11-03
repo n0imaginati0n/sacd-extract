@@ -10,7 +10,13 @@ if (APPLE)
     set(ENV{MACOSX_DEPLOYMENT_TARGET} 10.13)
 endif()
 
-include_directories(src/libcommon src/libsacd src/libdstdec src/libid3)
+include_directories(
+    src/libcommon
+    src/libsacd
+    src/libdstdec
+    src/libid3
+    src/libsds
+)
 
 # Mingw-w64 support
 OPTION(MINGW64 "Mingw-w64" NO)
