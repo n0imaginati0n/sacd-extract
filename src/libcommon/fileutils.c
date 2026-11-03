@@ -35,7 +35,52 @@
 #include "fileutils.h"
 #include "charset.h"
 #include "utils.h"
+#include "sds.h"
 
+/** replace unsafe chars with specified char
+ *
+ * @param s - input string
+ * @param from - null-terminated string with character need to be replaced
+ * @param to - character to replace with
+ *
+ * @return resutl sds string, or NULL in case of failure
+ */
+static sds sds_map_unsafe_chars(sds s, const char* from, const char to)
+{
+    size_t data_length = strlen(from);
+
+    char* to_buffer = (char*)calloc(data_length + 1, sizeof(char));
+    memset(to_buffer, to, data_length);
+    to_buffer[data_length] = '\0';
+
+    s = sdsmapchars(s, from, to_buffer, data_length);
+
+    free(to_buffer);
+    return s;
+}
+
+sds sds_sanitize_filepath(sds f)
+{
+    const char unsafe_chars[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+                                 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,
+                                 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x22, 0x2a, 0x3c, 0x3e, 0x3f, 0x7c, 0x7f, 0x00};
+
+    f = sds_map_unsafe_chars(f, unsafe_chars, '_');
+    f = sdstrim(f, ".\t\n\v\f\r ");
+    return f;
+}
+
+sds sds_sanitize_filename(sds f)
+{
+    const char unsafe_chars[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+                                 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,
+                                 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x22, 0x2a, 0x2f, 0x3a, 0x3c, 0x3e, 0x3f, 0x5b, 0x5d, 0x5c,  // added '['=5b, ']'=5d
+                                 0x7c, 0x7f, 0x00};  //  '<<'=0xab and '>>'=0xbb !! <--removed because don't works ok with UTF8 string if > 0x7f !!
+
+    f = sds_map_unsafe_chars(f, unsafe_chars, '_');
+    f = sdstrim(f, ".\t\n\v\f\r ");
+    return f;
+}
 
 int stat_wrap(const char *pathname, struct stat *buf)
 {
@@ -112,6 +157,14 @@ https://www.quora.com/What-is-the-longest-file-path-allowed-for-Linux
 #define MAX_BUFF_FULL_PATH_LEN 1024
 #define MAX_FILENAME_LEN 255
 
+#if defined(WIN32) || defined(_WIN32)
+static const char PATH_SEPARATOR = '\\';
+static const char* PATH_SEPARATOR_S = "\\";
+#else
+static const char PATH_SEPARATOR = '/';
+static const char* PATH_SEPARATOR_S = "/";
+#endif
+
 
 // construct a filename path from various parts/components 
 //
@@ -124,78 +177,64 @@ https://www.quora.com/What-is-the-longest-file-path-allowed-for-Linux
 // NOTE: any of the parameters may be NULL to be omitted
 char *make_filename(const char *path, const char *dir, const char *filename, const char *extension)
 {
-    char * ret = NULL;
-    int  pos   = 0;
-    char string_buf[MAX_BUFF_FULL_PATH_LEN];  // keep the full path
-
-    memset(string_buf,0,sizeof(string_buf));
-
-    if (path)
-    {
-        strncpy(string_buf, path, min(strlen(path), sizeof(string_buf) - 5)); // (-4 => making room for dot + extension!!!)
-        pos += min(strlen(path), sizeof(string_buf) - 5);
-#if defined(WIN32) || defined(_WIN32)
-        if(string_buf[pos-1] != '\\'){
-            string_buf[pos] = '\\';
-            pos++;
-        }
-#else
-        if(string_buf[pos-1] != '/'){
-            string_buf[pos] = '/';
-            pos++;
-        }
-#endif
-        
-    }
-    if (dir)
-    {       
-        strncpy(string_buf+pos,dir,min(strlen(dir), sizeof(string_buf) -pos-5));
-        pos += min(strlen(dir), sizeof(string_buf) - pos - 5);
-#if defined(WIN32) || defined(_WIN32)
-        if (string_buf[pos - 1] != '\\')
-        {
-            string_buf[pos] = '\\';
-            pos++;
-        }
-#else
-        if (string_buf[pos - 1] != '/')
-        {
-            string_buf[pos] = '/';
-            pos++;
-        }
-#endif
-        
-    }
-
-    sanitize_filepath(string_buf);
-
-    if (filename)
-    {
-        char filename_duplicate[MAX_FILENAME_LEN];
-        memset(filename_duplicate, 0, sizeof(filename_duplicate));
-        strncpy(filename_duplicate, filename, min(strlen(filename), sizeof(filename_duplicate) - 1));
-        sanitize_filename(filename_duplicate);
-
-        strncpy(string_buf + pos, filename_duplicate, min(strlen(filename_duplicate), sizeof(string_buf) - pos - 5)); 
-        pos += min(strlen(filename_duplicate), sizeof(string_buf) - pos - 5);
-    }
-
+    sds extension_str = sdsempty();
     if (extension)
     {
-        string_buf[pos] = '.';
-        pos++;
-        strncpy(string_buf + pos, extension, min(strlen(extension), sizeof(string_buf) - pos - 1));
-        pos += min(strlen(extension), sizeof(string_buf) - pos - 1);
+        extension_str = sdscat(extension_str, ".");
+        extension_str = sdscat(extension_str, extension);
     }
 
-    ret = strdup(string_buf);
-    if (ret == NULL)
+    sds filename_str = sdsempty();
+    if (filename)
     {
-        // LOG(lm_main, LOG_ERROR, ("calloc(sizeof(char) * len) failed. Out of memory."));
-        printf("Error! make_filename: Cannot alocate memory Out of memory.\n");
-        return NULL;
+        filename_str = sdscatlen(filename_str, filename, min(MAX_FILENAME_LEN - 1, strlen(filename)));
     }
-    return ret;
+
+    filename_str = sdscatsds(filename_str, extension_str);
+    sdsfree(extension_str);
+
+    filename_str = sds_sanitize_filename(filename_str);
+
+    sds path_str = sdsempty();
+    if (path)
+    {
+        path_str = sdscat(path_str, path);
+        if (path_str && sdslen(path_str) && path_str[sdslen(path_str) - 1] != PATH_SEPARATOR)
+        {
+            path_str = sdscat(path_str, PATH_SEPARATOR_S);
+        }
+    }
+
+    if (dir)
+    {
+        path_str = sdscat(path_str, dir);
+        if (path_str && sdslen(path_str) && path_str[sdslen(path_str) - 1] != PATH_SEPARATOR)
+        {
+            path_str = sdscat(path_str, PATH_SEPARATOR_S);
+        }
+    }
+    path_str = sds_sanitize_filepath(path_str);
+
+    if (MAX_BUFF_FULL_PATH_LEN <= sdslen(path_str))
+    {
+        LOG(lm_main, LOG_ERROR, ("Can't build the file full path. Result string is bigger than allowed length"));
+        sdsclear(path_str);
+    }
+
+    path_str = sdscatsds(path_str, filename_str);
+
+    sdsfree(filename_str);
+
+    char* result = (char*)malloc(sizeof(char) * (sdslen(path_str) + 1));
+    if (!result) {
+        printf("Error! make_filename: Cannot alocate memory Out of memory.\n");
+    }
+    else {
+        memcpy(result, path_str, sdslen(path_str));
+        result[sdslen(path_str)] = '\0';
+    }
+    sdsfree(path_str);
+    return result;
 }
 
 // substitute various items into a formatted string (similar to printf)
@@ -211,11 +250,10 @@ char *make_filename(const char *path, const char *dir, const char *filename, con
 char * parse_format(const char * format, int tracknum, const char * year, const char * artist, const char * album, const char * title)
 {
     unsigned i     = 0;
-    int      len   = 0;
     char     * ret = NULL;
-    int      pos   = 0;
 
-    for (i = 0; i < strlen(format); i++)
+    sds temp = sdsempty();
+    for (i = 0; i < strlen(format) && temp; i++)
     {
         if ((format[i] == '%') && (i + 1 < strlen(format)))
         {
@@ -223,98 +261,61 @@ char * parse_format(const char * format, int tracknum, const char * year, const 
             {
             case 'A':
                 if (artist)
-                    len += strlen(artist);
+                {
+                    temp = sdscat(temp, artist);
+                }
                 break;
             case 'L':
                 if (album)
-                    len += strlen(album);
+                {
+                    temp = sdscat(temp, album);
+                }
                 break;
             case 'N':
                 if ((tracknum > 0) && (tracknum < 100))
-                    len += 2;
+                {
+                    temp = sdscatprintf(temp, "%02d", tracknum);
+                }
                 break;
             case 'Y':
                 if (year)
-                    len += strlen(year);
+                {
+                    temp = sdscat(temp, year);
+                }
                 break;
             case 'T':
                 if (title)
-                    len += strlen(title);
+                {
+                    temp = sdscat(temp, title);
+                }
                 break;
             case '%':
-                len += 1;
-                break;
+                temp = sdscat(temp, "%%");
             }
-
             i++;             // skip the character after the %
         }
         else
         {
-            len++;
+            temp = sdscatlen(temp, format + i, 1);
         }
     }
 
-    ret = malloc(sizeof(char) * (len + 1));
+    if (!temp) {
+        LOG(lm_main, LOG_ERROR, ("Filed to allocate temp sds string"));
+        return NULL;
+    }
+
+    ret = (char*)malloc(sizeof(char) * (sdslen(temp) + 1));
     if (ret == NULL)
-        LOG(lm_main, LOG_ERROR, ("malloc(sizeof(char) * (len+1)) failed. Out of memory."));
-
-    for (i = 0; i < strlen(format); i++)
     {
-        if ((format[i] == '%') && (i + 1 < strlen(format)))
-        {
-            switch (format[i + 1])
-            {
-            case 'A':
-                if (artist)
-                {
-                    strncpy(&ret[pos], artist, strlen(artist));
-                    pos += strlen(artist);
-                }
-                break;
-            case 'L':
-                if (album)
-                {
-                    strncpy(&ret[pos], album, strlen(album));
-                    pos += strlen(album);
-                }
-                break;
-            case 'N':
-                if ((tracknum > 0) && (tracknum < 100))
-                {
-                    ret[pos]     = '0' + ((int) tracknum / 10);
-                    ret[pos + 1] = '0' + (tracknum % 10);
-                    pos         += 2;
-                }
-                break;
-            case 'Y':
-                if (year)
-                {
-                    strncpy(&ret[pos], year, strlen(year));
-                    pos += strlen(year);
-                }
-                break;
-            case 'T':
-                if (title)
-                {
-                    strncpy(&ret[pos], title, strlen(title));
-                    pos += strlen(title);
-                }
-                break;
-            case '%':
-                ret[pos] = '%';
-                pos     += 1;
-            }
-
-            i++;             // skip the character after the %
-        }
-        else
-        {
-            ret[pos] = format[i];
-            pos++;
-        }
+        LOG(lm_main, LOG_ERROR, ("malloc(sizeof(char) * (len+1)) failed. Out of memory."));
     }
-    ret[pos] = '\0';
-
+    else
+    {
+        memcpy(ret, temp, sizeof(char) * sdslen(temp));
+        ret[sdslen(temp)] = '\0';
+    }
+    sdsfree(temp);
     return ret;
 }
 
