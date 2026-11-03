@@ -22,7 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h> 
+#include <unistd.h>
 #include <stdint.h>
 #include <ctype.h>
 #include <wchar.h>
@@ -30,6 +30,8 @@
 #include "utils.h"
 #include "charset.h"
 #include "logging.h"
+
+#include "sds.h"
 
 char *substr(const char *pstr, int start, int numchars)
 {
@@ -41,14 +43,14 @@ char *substr(const char *pstr, int start, int numchars)
     if (numchars < (int) sizeof(pnew))
     {
 #ifdef _WIN32
-        wchar_type = (sizeof(wchar_t) == 2) ? 
+        wchar_type = (sizeof(wchar_t) == 2) ?
                     "UCS-2-INTERNAL" : "UCS-4-INTERNAL";
 #else
         wchar_type = "WCHAR_T";
 #endif
-        wc = (wchar_t *) charset_convert((char *) pstr + start, 
+        wc = (wchar_t *) charset_convert((char *) pstr + start,
                 numchars, "UTF-8", wchar_type);
-        c = charset_convert((char *) wc, 
+        c = charset_convert((char *) wc,
                 wcslen(wc) * sizeof(wchar_t), wchar_type, "UTF-8");
         strcpy(pnew, c);
         free(wc);
@@ -58,46 +60,51 @@ char *substr(const char *pstr, int start, int numchars)
     return pnew;
 }
 
-char *str_replace(const char *src, const char *from, const char *to)
+/**
+ * replace all 'from' substrings with 'to' contents. I will let the
+ * SDS library do it's best guesses, how much memory should be allocated
+ * and when. even if there is nothing to replace, a new copy of string will
+ * be returned
+ *
+ * @param src - source string.
+ * @param from - substring to replace
+ * @param to - substring with replace
+ *
+ * @return new string with updated contents. or NULL, if 'src' or 'from' 
+ *  are invalid null-temrinated strings. returned string should be owned by the 
+ *  external code and free'd after use.
+ */
+char* str_replace(const char* src, const char* from, const char* to)
 {
-    size_t size    = strlen(src) + 1;
-    size_t fromlen = strlen(from);
-    size_t tolen   = strlen(to);
-    char *value = malloc(size);
-    char *dst = value;
-    if (value != NULL)
+    // according to the old function code, we believe, that all input parameters
+    // are not NULL pointers, and point to null-terminated strings. otherwise
+    // strlen will lead to UB
+    if (src == NULL || src[0] == '\0' || // no reason to replace something in NULL or empty string
+        from == NULL || from[0] == '\0') // no reason to seek for NULL or empty string
     {
-        for ( ;; )
-        {
-            const char *match = strstr(src, from);
-            if ( match != NULL )
-            {
-                size_t count = match - src;
-                char *temp;
-                size += tolen - fromlen;
-                temp = realloc(value, size);
-                if ( temp == NULL )
-                {
-                    free(value);
-                    return NULL;
-                }
-                dst = temp + (dst - value);
-                value = temp;
-                memmove(dst, src, count);
-                src += count;
-                dst += count;
-                memmove(dst, to, tolen);
-                src += fromlen;
-                dst += tolen;
-            }
-            else /* No match found. */
-            {
-                strcpy(dst, src);
-                break;
-            }
-        }
+        return NULL;
     }
-    return value;
+
+    if (to == NULL)
+    {
+        to = "";
+    }
+
+    int tokens_num = 0;
+    sds* tokens = sdssplitlen(src, strlen(src), from, strlen(from), &tokens_num);
+    if (tokens == NULL || tokens_num == 0)
+    {
+        return NULL;
+    }
+
+    sds merged = sdsjoinsds(tokens, tokens_num, to, strlen(to));
+    sdsfreesplitres(tokens, tokens_num);
+
+    char* result = (char*)calloc(1, sdslen(merged) + 1);
+    memcpy(result, merged, sdslen(merged));
+    sdsfree(merged);
+
+    return result;
 }
 
 void replace_double_space_with_single(char *str)
