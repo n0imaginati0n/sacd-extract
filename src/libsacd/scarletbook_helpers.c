@@ -338,23 +338,23 @@ char *get_path_disc_album(scarletbook_handle_t *handle, int artist_flag)
         {
             disc_album_title_final = (char *)calloc(strlen(disc_artist) + 3 + strlen(disc_album_title) + 1 + strlen(multiset_s) + 1, sizeof(char));
             memcpy(disc_album_title_final, disc_artist, sizeof(disc_artist[0]) * strlen(disc_artist));
-            strncat(disc_album_title_final, " - ", 3);
-            strncat(disc_album_title_final, disc_album_title, strlen(disc_album_title));
+            strcat(disc_album_title_final, " - ");
+            strcat(disc_album_title_final, disc_album_title);
         }
         else 
         {
             disc_album_title_final = (char *)calloc(strlen(disc_album_title) + 1 + strlen(multiset_s) + 1, sizeof(char));
-            strncat(disc_album_title_final, disc_album_title, strlen(disc_album_title));
+            strcat(disc_album_title_final, disc_album_title);
         }
 
 #if defined(WIN32) || defined(_WIN32)
-            strncat(disc_album_title_final, "\\", 1);
+            strcat(disc_album_title_final, "\\");
 #else
-            strncat(disc_album_title_final, "/", 1);
+            strcat(disc_album_title_final, "/");
 #endif
             //}
 
-            strncat(disc_album_title_final, multiset_s, strlen(multiset_s));
+            strcat(disc_album_title_final, multiset_s);
     }
     else   // not album set
     {
@@ -371,15 +371,13 @@ char *get_path_disc_album(scarletbook_handle_t *handle, int artist_flag)
         {
             disc_album_title_final = (char *)calloc(strlen(disc_artist) + 3 + strlen(disc_album_title) + 1, sizeof(char));
             memcpy(disc_album_title_final, disc_artist, sizeof(disc_artist[0]) * strlen(disc_artist));
-            strncat(disc_album_title_final, " - ", 3);
-            strncat(disc_album_title_final, disc_album_title, strlen(disc_album_title));
+            strcat(disc_album_title_final, " - ");
+            strcat(disc_album_title_final, disc_album_title);
         }
         else{
             disc_album_title_final = (char *)calloc(strlen(disc_album_title) + 1, sizeof(char));
-            strncat(disc_album_title_final, disc_album_title, strlen(disc_album_title));
+            strcat(disc_album_title_final, disc_album_title);
         }
-        
-                    
         //}
         
     }

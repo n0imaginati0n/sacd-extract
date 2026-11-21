@@ -76,6 +76,7 @@ static wchar_t* utf8_to_widestr(const char* utf8str)
     return result_wstr;
 }
 
+#if defined(WIN32) || defined(_WIN32)
 static char* widestr_2_utf8(const wchar_t* wstr)
 {
     char* result_utf8_str = NULL;
@@ -95,6 +96,24 @@ static char* widestr_2_utf8(const wchar_t* wstr)
 
     return result_utf8_str;
 }
+
+/*  Convert wide argv to UTF8   */
+/*  only for Windows           */
+char ** convert_wargv_to_UTF8(int argc,wchar_t *wargv[])
+{
+    int i;
+
+    char **argv = malloc((argc + 1) * sizeof(*argv));
+
+    for (i = 0; i < argc; i++)
+    {
+        argv[i] = widestr_2_utf8(wargv[i]);
+    }
+         
+    argv[i] = NULL;
+    return argv;
+}
+#endif 
 
 #if defined(WIN32) || defined(_WIN32)
 static const char PATH_TRAILING_SLASH[2]= "\\";
@@ -504,26 +523,6 @@ void print_end_time()
     free(wide_result_time);
 	free(wide_asctime);	
 }
-#if defined(WIN32) || defined(_WIN32)
-/*  Convert wide argv to UTF8   */
-/*  only for Windows           */
-
-char ** convert_wargv_to_UTF8(int argc,wchar_t *wargv[])
-{
-    int i;
-
-    char **argv = malloc((argc + 1) * sizeof(*argv));
-
-    for (i = 0; i < argc; i++)
-    {
-        argv[i] = widestr_2_utf8(wargv[i]);
-    }
-         
-    argv[i] = NULL;
-    return argv;
-}
-#endif
-
 
 //   read from file sacd_extract.cfg
 //   if artist=1 then artist name will be added to the name of folder
@@ -637,26 +636,37 @@ char *create_path_output(scarletbook_handle_t *handle, int area_idx, char * base
 {
 	char *path_output;
     char *album_path = get_path_disc_album(handle,opts.artist_flag);
+
+	if(album_path == NULL)
+    {
+        return NULL;
+    }
 	
-	if(album_path==NULL)return NULL;
-	
-	if(base_output_dir !=NULL)
+    const size_t speaker_config_max_length = 20; // separation slash included
+
+	if(base_output_dir != NULL)
 	{
-      size_t size_base_output_dir =   strlen(base_output_dir);
-      path_output = calloc(size_base_output_dir + 1 + strlen(album_path) + 20, sizeof(char));
-      memcpy(path_output, base_output_dir, sizeof(base_output_dir[0]) * size_base_output_dir);
-      if (base_output_dir[size_base_output_dir-1] != '/' && base_output_dir[size_base_output_dir-1] != '\\')
-          strncat(path_output, PATH_TRAILING_SLASH, 1);
+        size_t size_base_output_dir = strlen(base_output_dir);
+
+        path_output = calloc(size_base_output_dir + 1 + strlen(album_path) + speaker_config_max_length, sizeof(char));
+        memcpy(path_output, base_output_dir, sizeof(base_output_dir[0]) * size_base_output_dir);
+
+        if (base_output_dir[size_base_output_dir-1] != '/' && base_output_dir[size_base_output_dir-1] != '\\')
+        {
+            strcat(path_output, PATH_TRAILING_SLASH);
+        }
 	}
 	else
-	  path_output = calloc(strlen(album_path) + 20, sizeof(char));
+    {
+	    path_output = calloc(strlen(album_path) + speaker_config_max_length, sizeof(char));
+    }
 
-    strncat(path_output, album_path, strlen(album_path));
+    strcat(path_output, album_path);
     free(album_path);
 
     if (has_multi_channel(handle))
     {
-        strncat(path_output, PATH_TRAILING_SLASH, 1);
+        strcat(path_output, PATH_TRAILING_SLASH);
         strcat(path_output, get_speaker_config_string(handle->area[area_idx].area_toc));
     }
 
@@ -880,14 +890,19 @@ char * return_current_directory()
                 {
                     size_t size_output_dir = strlen(opts.output_dir);
                     output_dir = calloc(size_output_dir + 1 + strlen(album_path) + 1, sizeof(char));
+                    
                     memcpy(output_dir, opts.output_dir, sizeof(opts.output_dir[0]) * size_output_dir);
                     if (opts.output_dir[size_output_dir - 1] != '/' && opts.output_dir[size_output_dir - 1] != '\\')
-                        strncat(output_dir, PATH_TRAILING_SLASH, 1);
+                    {
+                        strcat(output_dir, PATH_TRAILING_SLASH);
+                    }
                 }
                 else
+                {
                     output_dir = calloc(strlen(album_path) + 1, sizeof(char));
+                }
 
-                strncat(output_dir, album_path, strlen(album_path));
+                strcat(output_dir, album_path);
                 free(album_path);
                 LOG(lm_main, LOG_NOTICE, ("NOTICE in main: after get_path_disc_album()...output_dir: %s", output_dir));
 
