@@ -33,13 +33,13 @@
 #include <time.h>
 #ifndef __APPLE__
 #include <malloc.h>
+#include <errno.h>
 #endif
 #if defined(WIN32) || defined(_WIN32)
 #include <io.h>
 #endif
 
 #include <pthread.h>
-#include <charset.h>
 #include <logging.h>
 
 #include "getopt.h"
@@ -58,16 +58,50 @@
 #include "version.h"
 #include "scarletbook_xml.h"
 
+static wchar_t* utf8_to_widestr(const char* utf8str)
+{
+    wchar_t* result_wstr = NULL;
 
+    mbstate_t state;
+    memset(&state, 0, sizeof state);
 
+    errno = 0;
+    size_t len = mbsrtowcs(NULL, &utf8str, 0, &state);
+    if (len != (size_t)-1 && errno != EILSEQ)
+    {
+        ++len;
+        result_wstr = malloc(sizeof(wchar_t) * len);
+        mbsrtowcs(result_wstr, &utf8str, len, &state);
+    }
+    return result_wstr;
+}
+
+static char* widestr_2_utf8(const wchar_t* wstr)
+{
+    char* result_utf8_str = NULL;
+
+    mbstate_t state;
+    memset(&state, 0, sizeof state);
+
+    errno = 0;
+    size_t len = wcsrtombs(NULL, &wstr, 0, &state);
+
+    if (len != (size_t)-1 && errno != EILSEQ)
+    {
+        ++len;
+        result_utf8_str = malloc(sizeof(char) * len);
+        wcsrtombs(result_utf8_str, &wstr, len, &state);
+    }
+
+    return result_utf8_str;
+}
 
 #if defined(WIN32) || defined(_WIN32)
-
-#define CHAR2WCHAR(dst, src) dst = (wchar_t *)charset_convert(src, strlen(src), "UTF-8", "UCS-2-INTERNAL")
+static const char PATH_TRAILING_SLASH[2]= "\\";
 #else
-
-#define CHAR2WCHAR(dst, src) dst = (wchar_t *)charset_convert(src, strlen(src), "UTF-8", "WCHAR_T") 
+static const char PATH_TRAILING_SLASH[2] = "/";
 #endif
+
 
 static struct opts_s
 {
@@ -364,10 +398,11 @@ static void handle_sigint(int sig_no)
 
 static void handle_status_update_track_callback(char *filename, int current_track, int total_tracks)
 {
-    wchar_t *wide_filename;
-
-    CHAR2WCHAR(wide_filename, filename);
-    safe_fwprintf(stdout, L"\nProcessing [%ls] (%d/%d)..\n", wide_filename, current_track, total_tracks);
+    wchar_t *wide_filename = utf8_to_widestr(filename);
+    safe_fwprintf(
+        stdout,
+        L"\nProcessing [%ls] (%d/%d)..\n",
+        (wide_filename ? wide_filename : L"Unknown"), current_track, total_tracks);
     free(wide_filename);
 }
 
@@ -438,18 +473,18 @@ static void init(void)
     sigaction(SIGINT, &sa, NULL);
 #endif
 
-        //init_logging(1);   //init_logging(0); 0 = not create a log file
-        g_fwprintf_lock = new_lock(0);
+    //init_logging(1);   //init_logging(0); 0 = not create a log file
+    g_fwprintf_lock = new_lock(0);
 }
 
 void print_start_time()
 {
 	started_processing = time(0);
-	wchar_t *wide_asctime;
-	CHAR2WCHAR(wide_asctime, asctime(localtime(&started_processing)));
-	fwprintf(stdout, L"\n Started at: %ls    \n", wide_asctime );
+	wchar_t *wide_asctime = utf8_to_widestr(asctime(localtime(&started_processing)));
+	fwprintf(stdout, L"\n Started at: %ls    \n", (wide_asctime ? wide_asctime : L"Now"));
 	free(wide_asctime);
 }
+
 void print_end_time()
 {
 	time_t ended_processing=time(0);
@@ -457,13 +492,16 @@ void print_end_time()
 
 	char elapsed_time[100];
 	strftime(elapsed_time, 90, "%H hours:%M minutes:%S seconds", gmtime(&seconds));
-    wchar_t *wide_result_time, *wide_asctime;
-    CHAR2WCHAR(wide_result_time, elapsed_time);
 
-	CHAR2WCHAR(wide_asctime, asctime(localtime(&ended_processing)));
+    wchar_t *wide_result_time = utf8_to_widestr(elapsed_time);
+    wchar_t *wide_asctime = utf8_to_widestr(asctime(localtime(&ended_processing)));
+    
+	fwprintf(stdout,
+        L"\n\n Ended at: %ls [elapsed: %ls]\n",
+        (wide_asctime ? wide_asctime : L"Now"),
+        (wide_result_time ? wide_result_time : L"Unknown"));
 
-	fwprintf(stdout, L"\n\n Ended at: %ls [elapsed: %ls]\n", wide_asctime, wide_result_time);
-	free(wide_result_time);
+    free(wide_result_time);
 	free(wide_asctime);	
 }
 #if defined(WIN32) || defined(_WIN32)
@@ -478,7 +516,7 @@ char ** convert_wargv_to_UTF8(int argc,wchar_t *wargv[])
 
     for (i = 0; i < argc; i++)
     {
-        argv[i] = (char *)charset_convert((char *)wargv[i], wcslen((const wchar_t *)wargv[i]) * sizeof(wchar_t), "UCS-2-INTERNAL", "UTF-8");
+        argv[i] = widestr_2_utf8(wargv[i]);
     }
          
     argv[i] = NULL;
@@ -588,8 +626,6 @@ int read_config()
     
 } // end read_config
 
-
-
 //   Creates directory tree like: Album title (\ (Disc no.. )\ Stereo (or Multich)
 //   Useful for dsf, dff files.
 //     input: handle
@@ -599,12 +635,6 @@ int read_config()
 //
 char *create_path_output(scarletbook_handle_t *handle, int area_idx, char * base_output_dir)
 {
-#if defined(WIN32) || defined(_WIN32)
-char PATH_TRAILING_SLASH[2]= {'\\','\0'};
-#else
-char PATH_TRAILING_SLASH[2] = {'/', '\0'};
-#endif
-
 	char *path_output;
     char *album_path = get_path_disc_album(handle,opts.artist_flag);
 	
@@ -634,9 +664,10 @@ char PATH_TRAILING_SLASH[2] = {'/', '\0'};
 
     if (ret_mkdir != 0)
     {
-        wchar_t *wide_filename;
-        CHAR2WCHAR(wide_filename, path_output);
-        fwprintf(stderr, L"\n\n Error: %s directory can't be created.\n", wide_filename);
+        wchar_t *wide_filename = utf8_to_widestr(path_output);
+        fwprintf(stderr,
+            L"\n\n Error: %ls directory can't be created.\n",
+            (wide_filename ? wide_filename : L"Unknown"));
         free(wide_filename);
 
         LOG(lm_main, LOG_ERROR, ("ERROR in main:create_path_output()...directory can't be created: %s  ", path_output));
@@ -648,6 +679,7 @@ char PATH_TRAILING_SLASH[2] = {'/', '\0'};
     LOG(lm_main, LOG_NOTICE, ("NOTICE in main:create_path_output()...base_output_dir: %s", base_output_dir));
     return path_output;
 }
+
 //
 //  Get the current working directory:
 //  the returned buffer must be freed after use
@@ -671,19 +703,6 @@ char * return_current_directory()
         fwprintf(stderr, L"\n\n Error: Cannot get the working directory.\n");
     }
 #endif
-
-    // if(buffer != NULL)
-    // {
-    //     // remove the last trail
-    //     // strip ending slash if exists
-    //     size_t n= strlen(buffer);
-
-    //     if (buffer[n - 1] == '\\' ||
-    //         buffer[n - 1] == '/')
-    //     {
-    //         buffer[n - 1]='\0';
-    //     }
-    // }
     return buffer;
 }
 
@@ -723,16 +742,16 @@ char * return_current_directory()
         fwprintf(stdout, L"\nsacd_extract client " SACD_RIPPER_VERSION_STRING "\n");
         fwprintf(stdout, L"\nEnhanced by euflo ....starting!\n");
         // Get the current (working) directory:
-        char *buffer;
-        if ((buffer = return_current_directory() ) != NULL)   
+        char *buffer = return_current_directory();
+        if (buffer)   
         {
-            wchar_t *wide_filename;
-            CHAR2WCHAR(wide_filename, buffer);
-            fwprintf(stdout, L"\nCurrent (working) directory (for the app and 'sacd_extract.cfg' file): %ls\n", (wchar_t *)wide_filename);
+            wchar_t *wide_filename = utf8_to_widestr(buffer);
+            fwprintf(stdout,
+                L"\nCurrent (working) directory (for the app and 'sacd_extract.cfg' file): %ls\n", 
+                (wide_filename ? wide_filename : L"Unknown"));
             free(wide_filename);
-            free(buffer);
         }
-
+        free(buffer);
 
         int exist_cfg = read_config();
         init_logging(opts.logging); //init_logging(0); 1= write logs in a file
@@ -781,9 +800,10 @@ char * return_current_directory()
         {
             if (path_dir_exists(opts.output_dir) == 0)
             {
-                wchar_t *wide_filename;
-                CHAR2WCHAR(wide_filename, opts.output_dir);
-                fwprintf(stdout, L"'%ls' doesn't exist or is not a directory.\n",wide_filename);
+                wchar_t *wide_filename = utf8_to_widestr(opts.output_dir);
+                fwprintf(stdout,
+                    L"'%ls' doesn't exist or is not a directory.\n",
+                    (wide_filename ? wide_filename : L"Unknown"));
                 free(wide_filename);
 
 				exit_main_flag=-1;
@@ -797,9 +817,10 @@ char * return_current_directory()
         {
             if (path_dir_exists(opts.output_dir_conc) == 0)
             {
-                wchar_t *wide_filename;
-                CHAR2WCHAR(wide_filename, opts.output_dir_conc);
-                fwprintf(stdout, L"'%ls' doesn't exist or is not a directory.\n", wide_filename);
+                wchar_t *wide_filename = utf8_to_widestr(opts.output_dir_conc);
+                fwprintf(stdout,
+                    L"'%ls' doesn't exist or is not a directory.\n",
+                    (wide_filename ? wide_filename : L"Unknown"));
                 free(wide_filename);
 
                 exit_main_flag=-1;
@@ -853,11 +874,6 @@ char * return_current_directory()
                 }
 
                 // genereate the main output folder
-#if defined(WIN32) || defined(_WIN32)
-                char PATH_TRAILING_SLASH[2] = {'\\', '\0'};
-#else
-                char PATH_TRAILING_SLASH[2] = {'/', '\0'};
-#endif
                 char *album_path = get_path_disc_album(handle, opts.artist_flag);
                 char *output_dir;
                 if (opts.output_dir != NULL)
@@ -903,9 +919,10 @@ char * return_current_directory()
                         strcpy(filename_long, "\\\\?\\");
                         strncat(filename_long, metadata_file_path_unique, min(1016, strlen(metadata_file_path_unique)));
 #endif
-                        wchar_t *wide_filename;
-                        CHAR2WCHAR(wide_filename, metadata_file_path_unique);
-                        fwprintf(stdout, L"\n\n Exporting metadata in XML file: [%ls] ... \n", wide_filename);
+                        wchar_t *wide_filename = utf8_to_widestr(metadata_file_path_unique);
+                        fwprintf(stdout,
+                            L"\n\n Exporting metadata in XML file: [%ls] ... \n",
+                            (wide_filename ? wide_filename : L"Unknown"));
                         free(wide_filename);
 
 #if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
@@ -974,9 +991,10 @@ char * return_current_directory()
                     {
                         char *file_path_iso_unique = get_unique_filename(NULL, output_dir, album_filename, "iso");
 
-                        wchar_t *wide_filename;
-                        CHAR2WCHAR(wide_filename, file_path_iso_unique);
-                        fwprintf(stdout, L"\n Exporting ISO output in file: %ls\n", wide_filename);
+                        wchar_t *wide_filename = utf8_to_widestr(file_path_iso_unique);
+                        fwprintf(stdout,
+                            L"\n Exporting ISO output in file: %ls\n",
+                            (wide_filename ? wide_filename : L"Unknown"));
                         free(wide_filename);
 
                         LOG(lm_main, LOG_NOTICE, ("NOTICE in main: exporting ISO, before scarletbook_output_enqueue_raw_sectors()...file_path_iso_unique: %s; total_sectors:%d;", file_path_iso_unique,total_sectors));
@@ -986,7 +1004,6 @@ char * return_current_directory()
                         free(file_path_iso_unique);
                         
                     }
-                    
                     
                     print_start_time();
                     scarletbook_output_start(output);
@@ -1038,9 +1055,10 @@ char * return_current_directory()
 
                             char *file_path_dsdiff_unique = get_unique_filename(NULL, output_dir_dsd, album_filename, "dff");   
 
-                            wchar_t *wide_filename;
-                            CHAR2WCHAR(wide_filename, file_path_dsdiff_unique);
-                            fwprintf(stdout, L"\n Exporting DFF edit master output in file: %ls\n", wide_filename);
+                            wchar_t *wide_filename = utf8_to_widestr(file_path_dsdiff_unique);
+                            fwprintf(stdout,
+                                L"\n Exporting DFF edit master output in file: %ls\n",
+                                (wide_filename ? wide_filename : L"Unknown"));
                             free(wide_filename);
 
                             output = scarletbook_output_create(handle, handle_status_update_track_callback, handle_status_update_progress_callback, safe_fwprintf);
@@ -1069,9 +1087,10 @@ char * return_current_directory()
 
                             char *cue_file_path_unique = get_unique_filename(NULL, output_dir_dsd, album_filename, "cue");
 
-                            wchar_t *wide_filename;
-                            CHAR2WCHAR(wide_filename, cue_file_path_unique);
-                            fwprintf(stdout, L"\n\n Exporting CUE sheet: [%ls] ... \n", wide_filename);
+                            wchar_t *wide_filename = utf8_to_widestr(cue_file_path_unique);
+                            fwprintf(stdout,
+                                L"\n\n Exporting CUE sheet: [%ls] ... \n",
+                                (wide_filename ? wide_filename : L"Unknown"));
                             free(wide_filename);
 
                             file_path = make_filename(NULL, NULL, album_filename, "dff");
@@ -1090,15 +1109,18 @@ char * return_current_directory()
                         if (opts.output_dsf || opts.output_dsdiff)
                         {
 
-                            wchar_t *wide_folder;
-                            CHAR2WCHAR(wide_folder, output_dir_dsd);
+                            wchar_t *wide_folder = utf8_to_widestr(output_dir_dsd);
                             if (opts.output_dsf)
                             {
-                                fwprintf(stdout, L"\n Exporting DSF output in folder: %ls\n", wide_folder);
+                                fwprintf(stdout,
+                                    L"\n Exporting DSF output in folder: %ls\n",
+                                    (wide_folder ? wide_folder : L"Unknown"));
                             }
                             else
                             {
-                                fwprintf(stdout, L"\n Exporting DSDIFF output in folder: %ls\n", wide_folder);
+                                fwprintf(stdout,
+                                    L"\n Exporting DSDIFF output in folder: %ls\n",
+                                    (wide_folder ? wide_folder : L"Unknown"));
                             }
                             free(wide_folder);
 
@@ -1190,8 +1212,6 @@ char * return_current_directory()
                                 }                                                                                                  
                             }                          
 
-                           
-
                             print_start_time();
 
                             LOG(lm_main, LOG_NOTICE, ("Start processing dsf/dff files"));
@@ -1208,7 +1228,6 @@ char * return_current_directory()
                                 fwprintf(stdout, L"\n\n We are done exporting DSDIFF..                                                          \n");
 
                         } // end if (opts.output_dsf || opts.output_dsdiff)
-
                         
                         if (opts.multi_channel == 1)
                             opts.multi_channel = 0;
