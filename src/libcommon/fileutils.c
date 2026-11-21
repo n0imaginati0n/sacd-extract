@@ -132,7 +132,7 @@ char *make_filename(const char *path, const char *dir, const char *filename, con
 
     if (path)
     {
-        strncpy(string_buf, path, min(strlen(path), sizeof(string_buf) - 5)); // (-4 => making room for dot + extension!!!)
+        memcpy(string_buf, path, sizeof(path[0]) * min(strlen(path), sizeof(string_buf) - 5)); // (-4 => making room for dot + extension!!!)
         pos += min(strlen(path), sizeof(string_buf) - 5);
 #if defined(WIN32) || defined(_WIN32)
         if(string_buf[pos-1] != '\\'){
@@ -149,7 +149,7 @@ char *make_filename(const char *path, const char *dir, const char *filename, con
     }
     if (dir)
     {       
-        strncpy(string_buf+pos,dir,min(strlen(dir), sizeof(string_buf) -pos-5));
+        memcpy(string_buf+pos,dir, sizeof(dir[0]) * min(strlen(dir), sizeof(string_buf) -pos-5));
         pos += min(strlen(dir), sizeof(string_buf) - pos - 5);
 #if defined(WIN32) || defined(_WIN32)
         if (string_buf[pos - 1] != '\\')
@@ -173,10 +173,10 @@ char *make_filename(const char *path, const char *dir, const char *filename, con
     {
         char filename_duplicate[MAX_FILENAME_LEN];
         memset(filename_duplicate, 0, sizeof(filename_duplicate));
-        strncpy(filename_duplicate, filename, min(strlen(filename), sizeof(filename_duplicate) - 1));
+        memcpy(filename_duplicate, filename, sizeof(filename[0]) * min(strlen(filename), sizeof(filename_duplicate) - 1));
         sanitize_filename(filename_duplicate);
 
-        strncpy(string_buf + pos, filename_duplicate, min(strlen(filename_duplicate), sizeof(string_buf) - pos - 5)); 
+        memcpy(string_buf + pos, filename_duplicate, sizeof(filename_duplicate[0]) * min(strlen(filename_duplicate), sizeof(string_buf) - pos - 5)); 
         pos += min(strlen(filename_duplicate), sizeof(string_buf) - pos - 5);
     }
 
@@ -184,7 +184,7 @@ char *make_filename(const char *path, const char *dir, const char *filename, con
     {
         string_buf[pos] = '.';
         pos++;
-        strncpy(string_buf + pos, extension, min(strlen(extension), sizeof(string_buf) - pos - 1));
+        memcpy(string_buf + pos, extension, sizeof(extension[0]) * min(strlen(extension), sizeof(string_buf) - pos - 1));
         pos += min(strlen(extension), sizeof(string_buf) - pos - 1);
     }
 
@@ -267,14 +267,14 @@ char * parse_format(const char * format, int tracknum, const char * year, const 
             case 'A':
                 if (artist)
                 {
-                    strncpy(&ret[pos], artist, strlen(artist));
+                    memcpy(&ret[pos], artist, sizeof(artist[0]) * strlen(artist));
                     pos += strlen(artist);
                 }
                 break;
             case 'L':
                 if (album)
                 {
-                    strncpy(&ret[pos], album, strlen(album));
+                    memcpy(&ret[pos], album, sizeof(album[0]) * strlen(album));
                     pos += strlen(album);
                 }
                 break;
@@ -289,14 +289,14 @@ char * parse_format(const char * format, int tracknum, const char * year, const 
             case 'Y':
                 if (year)
                 {
-                    strncpy(&ret[pos], year, strlen(year));
+                    memcpy(&ret[pos], year, sizeof(year[0]) * strlen(year));
                     pos += strlen(year);
                 }
                 break;
             case 'T':
                 if (title)
                 {
-                    strncpy(&ret[pos], title, strlen(title));
+                    memcpy(&ret[pos], title, sizeof(title[0]) * strlen(title));
                     pos += strlen(title);
                 }
                 break;

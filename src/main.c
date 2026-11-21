@@ -614,7 +614,7 @@ char PATH_TRAILING_SLASH[2] = {'/', '\0'};
 	{
       size_t size_base_output_dir =   strlen(base_output_dir);
       path_output = calloc(size_base_output_dir + 1 + strlen(album_path) + 20, sizeof(char));
-      strncpy(path_output, base_output_dir, size_base_output_dir);
+      memcpy(path_output, base_output_dir, sizeof(base_output_dir[0]) * size_base_output_dir);
       if (base_output_dir[size_base_output_dir-1] != '/' && base_output_dir[size_base_output_dir-1] != '\\')
           strncat(path_output, PATH_TRAILING_SLASH, 1);
 	}
@@ -864,7 +864,7 @@ char * return_current_directory()
                 {
                     size_t size_output_dir = strlen(opts.output_dir);
                     output_dir = calloc(size_output_dir + 1 + strlen(album_path) + 1, sizeof(char));
-                    strncpy(output_dir, opts.output_dir, size_output_dir);
+                    memcpy(output_dir, opts.output_dir, sizeof(opts.output_dir[0]) * size_output_dir);
                     if (opts.output_dir[size_output_dir - 1] != '/' && opts.output_dir[size_output_dir - 1] != '\\')
                         strncat(output_dir, PATH_TRAILING_SLASH, 1);
                 }
